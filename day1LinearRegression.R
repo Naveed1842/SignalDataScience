@@ -41,3 +41,19 @@ qplot(df2$gdp, linear_fit$residuals)
 # Plot of linear fit residuals after log transformation of GDP and infant mortality
 qplot(df2$gdp.log, df2$infant.mortality.log - exp(fitted(loglog_fit)))
 
+# Anscombe
+
+summary(anscombe)
+for(i in 1:8){
+  print(colnames(anscombe)[i])
+  print(c("Mean: ", mean(anscombe[,i])))
+  print(c("Variance: ", var(anscombe[,i])))
+}
+for(i in 1:4){
+  print(c(colnames(anscombe)[i],colnames(anscombe)[i+4]))
+  print(cor(anscombe[,i],anscombe[,i+4]))
+  linear_fit = lm(anscombe[,i+4] ~ anscombe[,i], anscombe)
+  print(summary(linear_fit))
+  plot(anscombe[,i], anscombe[,i+4])
+}
+
