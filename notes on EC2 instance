@@ -1,0 +1,22 @@
+231780
+reviews_Video_Games_5.json
+
+Kill screen session:
+
+screen -S 23536 -X quit
+
+
+rm -rh <directory_to_delete>
+
+ls -lh
+size of everything in dir
+
+ls -lh *
+size of all files
+
+
+du -sh </dir>
+size of directory
+
+
+ssh -i ~/Documents/Dropbox/cloudkey.pem ubuntu@ec2-54-191-201-244.us-west-2.compute.amazonaws.com

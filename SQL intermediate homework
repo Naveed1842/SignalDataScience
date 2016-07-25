@@ -1,0 +1,107 @@
+SQL homework
+
+SELECT Name FROM records
+    WHERE Supervisor = 'Oliver Warbucks';
+SELECT * FROM records
+    WHERE Name = Supervisor;
+SELECT Name FROM records
+WHERE Salary > 50000
+ORDER BY Name;
+
+SELECT records.Name as employee, records.salary, records.supervisor, r2.salary as supSalary 
+FROM records
+JOIN records as r2 on records.Supervisor = r2.Name
+where supSalary >= 2*records.salary;
+
+SELECT DISTINCT r1.Name FROM records AS r1
+JOIN records AS r2 ON r1.Supervisor = r2.Name
+WHERE r2.Division != r1.Division;
+
+# Oliver's servants' schedules
+SELECT r1.Name, m.Day, m.Time FROM records r1
+JOIN records r2 ON r1.Supervisor = r2.Name
+JOIN meetings m on m.Division = r1.Division
+WHERE r2.Name = 'Oliver Warbucks';
+
+# Middle Managers
+
+SELECT DISTINCT r2.Name from records r1
+JOIN records r2 on r1.Supervisor=r2.Name
+JOIN records r3 on r2.Supervisor=r3.Name
+WHERE (r1.Name != r2.Name AND r2.Name != r3.Name);
+
+# Boss meeters
+SELECT DISTINCT r1.Name from records r1
+JOIN records r2 on r1.Supervisor=r2.Name
+JOIN meetings m1 on r1.Division=m1.Division
+JOIN meetings m2 on r2.Division=m2.Division
+WHERE m1.Day = m2.Day AND r1.Name != r2.Name;
+
+# sum(Salary) of the Boss's underlings
+SELECT r2.Name as Boss, COUNT(r1.Name) AS Underlings, SUM(r1.Salary) as UnderlingsSalaries
+FROM records r1 JOIN records r2 ON r1.Supervisor=r2.Name
+GROUP BY Boss
+ORDER BY UnderlingsSalaries DESC;
+
+# Repeated Salaries
+SELECT DISTINCT Salary FROM records
+GROUP BY Salary
+HAVING COUNT(Salary)>1;
+
+WITH
+schedule(day, dresscode) AS (
+SELECT "Monday",    "Sports" UNION 
+SELECT "Tuesday",   "Drag" UNION
+SELECT"Wednesday", "Regular" UNION
+SELECT "Friday",    "Casual"  UNION)
+SELECT a.name, b.dresscode 
+FROM   records AS a, schedule AS b, meetings AS c 
+WHERE a.division = c.division AND b.day = c.day 
+ORDER BY a.name;
+
+
+
+WITH num(n, factorial) AS 
+(
+SELECT 0,0 UNION
+SELECT 1, 1 UNION
+SELECT n + 1, factorial*(n+1)
+FROM num WHERE n< 10 AND n>=1  ) SELECT * FROM num;
+
+WITH num(n, n1, n2) AS
+(
+SELECT 0, 1, 2 UNION
+SELECT n+3, n+4, n+5
+FROM num WHERE n<14) SELECT * FROM num;
+
+# Woof!
+SELECT dogs.name as Name, p.parent as Parent from dogs
+JOIN parents p on dogs.name=p.child
+JOIN dogs d2 on p.parent=d2.name
+WHERE p.parent IS NOT NULL
+ORDER BY d2.height DESC;
+
+WITH sibs(sib1, sib2) AS 
+(
+SELECT c1.child as sib1, c2.child as sib2
+FROM parents c1
+JOIN parents c2 ON c1.parent = c2.parent
+WHERE sib1 < sib2
+)
+SELECT sib1 || ' and ' || sib2 || ' are ' || ' siblings' || ' of size ' || s1.size FROM sibs
+JOIN dogs d1 ON d1.name = sib1
+JOIN dogs d2 ON d2.name = sib2
+JOIN sizes s1 on d1.height > s1.min AND d1.height <= s1.max
+JOIN sizes s2 ON d2.height > s2.min AND d2.height <= s2.max
+WHERE s1.size = s2.size;
+
+
+
+
+SELECT name,
+CASE WHEN height < sizes.max and height > sizes.min
+THEN sizes.size END sibSize
+FROM dogs;
+
+
+

@@ -1,0 +1,440 @@
+---
+title: "Recommender Systems"
+author: "Nathan and Rafael"
+date: "July 22, 2016"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+
+```{r recommender systems}
+library("softImpute")
+library("DAAG")
+library("ggplot2")
+library("pROC")
+library("glmnet")
+library("dummies")
+
+df = read.csv("movies/ratings.dat", header = FALSE, sep = ":", stringsAsFactors = FALSE, skipNul = TRUE)
+
+df[c(2,4,6)] = NULL
+df['V7'] = NULL
+colnames(df) = c("userID", "movieID", "rating")
+
+movie_ratings = data.frame(aggregate(df[,'rating'], by= df['movieID'], mean))
+colnames(movie_ratings)[2] = "meanRating"
+
+user_ratings = data.frame(aggregate(df[,'rating'], by = df['userID'], mean))
+colnames(user_ratings)[2] = "meanRating"
+
+max(df$userID)
+dim(user_ratings)
+max(df$movieID)
+dim(movie_ratings)
+# Note: 246 missing movies based on non-contiguous movieIDs
+length(setdiff(1:3952, df$movieID))
+
+
+groups = sample(nrow(df), size = nrow(df), replace = FALSE)
+
+train_set = df[groups %% 5 != 1,]
+test_set = df[groups %% 5 == 1,]
+
+fake_movieID = max(df$movieID) + 1
+fake_movie_ratings = matrix(data = NA, nrow = max(df$userID), ncol = 3, dimnames = list(NULL, colnames(df)))
+
+fake_movie_ratings[,1] = 1:max(df$userID)
+fake_movie_ratings[,2] = fake_movieID
+fake_movie_ratings[,3] = mean(df$rating) + rnorm(max(df$userID), mean = 0, sd = 0.01)
+
+head(fake_movie_ratings)
+
+df_add = rbind(train_set, fake_movie_ratings)
+sum(is.na(df_add))
+fake_userID = max(df$userID) + 1
+fake_user_ratings = matrix(data = NA, nrow = max(df$movieID), ncol = 3, dimnames = list(NULL, colnames(df)))
+
+
+
+fake_user_ratings[,1] = fake_userID
+fake_user_ratings[,2] = 1:max(df$movieID)
+fake_user_ratings[,3] = mean(df$rating) + rnorm(1, mean = 0, sd = 0.01)
+
+train_set = rbind(df_add, fake_user_ratings)
+
+nrow(train_set) + nrow(test_set) - nrow(df)
+
+sum(is.na(train_set))
+
+
+sparse_df = Incomplete(train_set$userID,
+                       train_set$movieID,
+                       train_set$rating)
+dim(sparse_df)
+
+set.seed(3);sparse_scale = biScale(sparse_df, maxit = 5, trace = TRUE)
+
+lam0 = lambda0(sparse_scale)
+
+lam_vec = seq(from = log(lam0), to = log(1), length.out = 20)
+
+lam_vec_exp = exp(lam_vec)
+lam_vec_exp
+
+results = data.frame(lambda = lam_vec_exp, rank=NA, rmse =NA)
+
+fits = list(rep(NA, length(lam_vec_exp)))
+count =1
+
+
+fits[1] = list(softImpute(sparse_scale, rank.max = 30, lambda = lam_vec_exp[1], maxit = 1000))
+
+
+
+
+for(lam in lam_vec_exp){
+  if(count == 1){
+    fits[count] = list(softImpute(sparse_scale, rank.max = 30, lambda = lam, maxit = 1000))
+  } else {
+    fits[count] = list(softImpute(sparse_scale, rank.max = 30, lambda = lam, maxit = 1000, warm.start = fits[[count-1]]))
+  }
+  results[count, "rank"] = round_and_count(unlist(fits[[count]]['d']))
+  results[count, "rmse"] = rmse(impute(fits[[count]],                               test_set$userID,                               test_set$movieID),                           test_set$rating)
+  print(c(count, lam, results[count, "rmse"], results[count, "rank"]))
+  count = count +1
+}
+
+rmse = function(x,y) {
+  # Make sure that x and y have the same length
+  if (length(x) != length(y)) stop('x and y must have the same length')
+  return(sqrt(mean((x-y)^2)))
+}
+
+round_and_count = function(x){
+  count = 0
+  for(i in 1:length(x)){
+    if(round(x[i], 4) != 0) count = count + 1
+  }
+  return(count)
+}
+
+best_svd = fits[[min(results$rmse)]]
+
+mae = function(x,y){
+  mae = sum(abs(x-y))/(length(x))
+}
+?Complete
+
+results$mae = NA
+for (i in 1:length(fits)){
+  results[i,'mae'] = mae(impute(fits[[i]],                               test_set$userID,                             test_set$movieID),                           test_set$rating)
+}
+
+print(results[results$mae == min(results$mae),])
+print(results[results$rmse == min(results$rmse),])
+
+
+# Using mean rating to add recall and precision to results
+
+# precision = recommended_items&true_pos / total_pos_recommendations
+# sensitivity or recall = recommended_items&true_pos / true_positive
+
+results$precision = NA
+results$recall = NA
+imputation_matrix = matrix(data = NA, nrow = nrow(test_set), ncol = length(fits))
+for (i in 1:length(fits)){
+  imputation_matrix[,i] = impute(fits[[i]],                               test_set$userID,                             test_set$movieID)
+}
+
+imputation_df = as.data.frame(imputation_matrix)
+count = 1
+for (col in imputation_df){
+  threshold = mean(test_set$rating)
+  test_pos_list = test_set$rating >= threshold
+  
+  true_pos_recommend = length(col[col >= threshold & test_pos_list == TRUE])
+  
+  total_recommend = length(col[col >= threshold])
+  
+  true_positive = length(test_set$rating[test_set$rating >= threshold])
+  print(true_pos_recommend)
+  results[count,'precision'] = true_pos_recommend / total_recommend
+  results[count,'recall'] = true_pos_recommend /  true_positive
+  count = count + 1                    
+}
+
+
+asym_cost = function(test, prediction){
+  # Implementing an asymmetric cost function L[t,p]
+  # row (t) is the true rating
+  # column (p) is the prediction
+  # look up each pair in the cost function
+  asym_cost_func = matrix(data = NA, nrow= 5, ncol=5)
+  asym_cost_func[,1] = c(0,0,0,3,4)
+  asym_cost_func[,2] = c(0,0,0,2,3)
+  asym_cost_func[,3] = c(0,0,0,1,2)
+  asym_cost_func[,4] = c(7.5,4,1.5,0,0)
+  asym_cost_func[,5] = c(10,6,3,0,0)
+  
+  weighted_predictions = vector(mode = "numeric", length = length(prediction))
+  for(i in 1:length(prediction)){
+    temp_pred = round(prediction[[i]], digits = 0)
+    if(temp_pred > 5) temp_pred = 5
+    if(temp_pred < 1) temp_pred = 1
+    weighted_predictions[i] = asym_cost_func[test[[i]], temp_pred]
+  }
+  print(sum(weighted_predictions))
+  return(sum(weighted_predictions))
+}
+?round
+results$asym = NA
+for(i in 1:length(fits)){
+  results$asym[i] = asym_cost(test_set$rating, imputation_df[,i])
+}
+
+results[results$asym==min(results$asym),]
+
+# Analyzing the results
+
+# Predicting user careers and movie genres
+
+
+movies_df = read.csv("movies/movies.dat", header = FALSE, sep = "~", stringsAsFactors = FALSE)
+dim(movies_df)
+movies_df = movies_df[movies_df$V1 %in% movie_ratings$movieID,]
+dim(movies_df)
+colnames(movies_df) = c("movieID", "title", "genres")
+
+
+genre_list = unique(unlist(lapply(movies_df$genres, strsplit, split = "|", fixed = TRUE)))
+
+
+
+# Adding a dummy variable column for each genre
+for(genre in genre_list){
+  movies_df[genre] = rep(0, nrow(movies_df))
+  movies_df[grep(genre, movies_df$genres), genre] = 1
+  
+}
+summary(movies_df)
+
+# Add in the best_svd fit scores (v)
+scores = best_svd$v[movies_df$movieID,]
+dim(scores)
+movies_df = cbind(movies_df, scores)
+dim(movies_df)
+colnames(movies_df)[ 22:23 ] = c("factor1", "factor2")
+colnames(movies_df)
+
+# Analysing Drama Genre Predictions
+drama_fit = glm(Drama~factor1 + factor2, family = "binomial", data = movies_df)
+drama_CVbinary = CVbinary(drama_fit, nfolds = 10)
+# Plot ROC curve (x = False Positive Rate, y = True Positive Rate)
+# Use pROC to plot the ROC, with response = glm data target column, and predictor = CVbinary_object$cvhat
+r = roc(response = movies_df$Drama, predictor = drama_CVbinary$cvhat)
+plot(r)
+drama_predicted_df = data.frame(movies_df$title, movies_df$Drama, drama_CVbinary$cvhat)
+drama_predicted_df = drama_predicted_df[order(drama_predicted_df$drama_CVbinary.cvhat, decreasing = TRUE),]
+
+
+# Analysing Adventure Genre predictions
+adventure_fit = glm(Adventure~factor1 + factor2, family = "binomial", data = movies_df)
+adventure_CVbinary = CVbinary(adventure_fit, nfolds = 10)
+# Plot ROC curve (x = False Positive Rate, y = True Positive Rate)
+# Use pROC to plot the ROC, with response = glm data target column, and predictor = CVbinary_object$cvhat
+r2 = roc(response = movies_df$Adventure, predictor = adventure_CVbinary$cvhat)
+plot(r2)
+adventure_predicted_df = data.frame(movies_df$title, movies_df$Adventure, adventure_CVbinary$cvhat)
+adventure_predicted_df = adventure_predicted_df[order(adventure_predicted_df$adventure_CVbinary.cvhat, decreasing = TRUE),]
+
+# Analysing Musical Genre predictions
+musical_fit = glm(Musical~factor1 + factor2, family = "binomial", data = movies_df)
+musical_CVbinary = CVbinary(musical_fit, nfolds = 10)
+# Plot ROC curve (x = False Positive Rate, y = True Positive Rate)
+# Use pROC to plot the ROC, with response = glm data target column, and predictor = CVbinary_object$cvhat
+r3 = roc(response = movies_df$Musical, predictor = musical_CVbinary$cvhat)
+plot(r3)
+musical_predicted_df = data.frame(movies_df$title, movies_df$Musical, musical_CVbinary$cvhat)
+musical_predicted_df = musical_predicted_df[order(musical_predicted_df$musical_CVbinary.cvhat, decreasing = TRUE),]
+
+
+users_df = read.csv("movies/users.dat", header = FALSE, sep = "~", stringsAsFactors = FALSE)
+colnames(users_df) = c("userID", "gender", "age", "occupation", "zipCode")
+users_df = cbind(users_df, best_svd$u[1:6040,])
+
+users_df$age = as.factor(users_df$age)
+levels(users_df$age) =  c("Under 18", "18-24", "25-34","35-44", "45-49", "50-55", "56+")
+
+users_df$occupation = as.factor(users_df$occupation)  
+levels(users_df$occupation) =	c("other" ,  "academiceducator"
+, "artist"
+, "clericaladmin"
+, "collegegradstudent"
+, "customerservice"
+,  "doctorhealthcare"
+,  "executivemanagerial"
+,  "farmer"
+,  "homemaker"
+,  "K12student"
+,  "lawyer"
+, "programmer"
+,  "retired"
+,  "salesmarketing"
+,  "scientist"
+,  "selfemployed"
+,  "technicianengineer"
+, "tradesmancraftsman"
+,  "unemployed"
+, "writer")
+
+str(users_df)
+users_full_dummies = dummy.data.frame(users_df[,c(2:4, 6:7)], names = "occupation", sep="X")
+colnames(users_full_dummies)[3:23]
+colnames(users_full_dummies)[24:25] = c("factor1", "factor2")
+
+users_subset = users_df[as.numeric(users_df$age) >= 4,]
+topOccupations = table(users_subset$occupation)[-c(1,17)]
+topOccupations = names(sort(topOccupations, decreasing = TRUE)[1:4])
+dim(users_subset)
+topOccupations
+users_subset = users_df[as.character(users_df$occupation) %in% topOccupations,]
+users_subset$occupation = as.factor(as.character(users_subset$occupation))
+levels(users_subset$occupation)
+dim(users_subset)
+str(users_subset)
+
+# Multinomial Logistic Regression on career
+
+users_df_dummies = dummy.data.frame(users_subset[,c(2:4,6:7)], names = "occupation",sep = "X")
+
+dim(users_df_dummies)
+colnames(users_df_dummies)
+scaled_user_factors = scale(users_df_dummies[3:6])
+
+library("dplyr")
+users_glm = glmnet(scaled_user_factors, users_subset$occupation, family = "multinomial")
+
+users_preds = predict(users_glm, scaled_user_factors, s=0)
+
+users_PCA = prcomp(scale(as.data.frame(users_preds)))
+library("corrplot")
+corrplot(users_PCA$rotation, is.corr=FALSE)
+
+
+# Estimating different careers' genre preferences
+
+ulr_genre = function(thing_df, thing_list, factor_list = c("factor1", "factor2")){
+  set.seed(1)
+  logOdd_df = data.frame(matrix(data = NA, nrow = (nrow(thing_df)), ncol = (length(thing_list))))
+  colnames(logOdd_df) = thing_list
+  
+  for(thing in thing_list){
+    print(thing)
+    # Run UnregLogisticReg for thing against factor variables
+    glm_formula = paste(thing, "~")
+    for(i in 1:length(factor_list)){
+      if(i != 1) glm_formula = paste(glm_formula, "+")
+      glm_formula = paste(glm_formula, factor_list[i])
+    }
+    target_fit = glm(as.formula(glm_formula), data = thing_df, family = "binomial")
+    # Use CVbinary() to generate cv probability estimates of thing membership for each subject
+    target_CVbinary = CVbinary(target_fit, nfolds = 10)
+    # Convert probs to log odds L = log(P/(1-P))
+    probs = target_CVbinary$cvhat
+    logOdd_df[, thing] = log(probs / (1 - probs))
+  }
+  return(logOdd_df)
+}
+
+linear_combo = function(logOdd_df, thing_list, thing_df, factor_list = c("factor1", "factor2")){
+    factor_df = thing_df[factor_list]
+    results_df = data.frame(matrix(data = NA, nrow = ncol(factor_df), ncol = length(thing_list)))
+  colnames(results_df) = thing_list
+  for(thing in thing_list){
+    # For each thing, calc linear combination of factor scores * log odds
+    for(i in 1:length(factor_df)){
+      results_df[i,thing] = sum(thing_df[[thing]] * factor_df[,i])
+    }
+  }
+  return(results_df)
+}
+
+genre_list[2] = "Childrens"
+genre_list[12] = "SciFi"
+genre_list[17] = "FilmNoir"
+colnames(movies_df)[4:21] = genre_list
+
+
+genre_logOdd = ulr_genre(movies_df, genre_list)
+genre_scores = linear_combo(genre_logOdd, genre_list, movies_df)
+head(genre_scores)
+
+career_logOdd = ulr_genre(users_full_dummies, (colnames(users_full_dummies)[3:23]))
+head(career_logOdd)
+career_scores = linear_combo(career_logOdd, colnames(users_full_dummies)[3:23], users_full_dummies)
+
+career_list = colnames(users_full_dummies)[3:23]
+# Matrix Pairings
+pairings = matrix(data = NA, nrow = length(career_list), ncol = length(genre_list), dimnames = list(career_list, genre_list))
+
+for (y in 1:length(genre_list)){
+  for (x in 1:length(career_list)){
+    
+    pairings[x,y] = genre_scores[1,y] * career_scores[1,x]
+    
+  }
+}
+View(pairings)
+
+
+
+library("forecast")
+
+print(BoxCox.lambda)
+
+
+print(BoxCox)
+
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
