@@ -144,17 +144,5 @@ if debug == True:
     print(check_reviews)
 
 
-# In[33]:
-
-
-
-
-# In[34]:
-
-
-
-
-# In[ ]:
-
 
 
