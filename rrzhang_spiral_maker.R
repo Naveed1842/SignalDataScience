@@ -1,3 +1,5 @@
+# Code by R R zhang
+
 ## Given n*m, create a clockwise or counterclockwork list of coordinates
 cw = list(c(0,1),c(1,0),c(0,-1),c(-1,0))
 ccw = list(c(1,0), c(0,1), c(-1,0), c(0,-1))
