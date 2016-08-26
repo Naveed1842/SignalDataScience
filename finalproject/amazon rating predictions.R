@@ -5,8 +5,9 @@
 # Part 1: convert data to wide format
 # Load long data
 path = "/Users/nathan/Documents/Stats/SignalDataScience/finalproject/datafiles/"
-df = read.csv(paste0(path,'reviewsummary.csv'))
+df = read.csv(paste0(path,'reviewsummary.csv'), stringsAsFactors = FALSE)
 df['X'] = NULL
+sum(is.na(df))
 length(unique(df$asin))
 # Convert to wide format - one dummy column set per review
 # In each dummy column set:
@@ -14,12 +15,16 @@ length(unique(df$asin))
 # so twenty reviews should become 60 columns
 
 # target variable is avg_rating, which I'll rename true_rating
+asin = df[900,'asin']
+length(unique(df[df['asin']==asin,'reviewerID']))
 
 unmade=TRUE
 asin_count = 1
 for(asin in unique(df$asin)){
   if(unmade==TRUE){
-    df_wide = matrix(data = NA, nrow = length(unique(df$asin)), ncol=(length(unique(df[df['asin']==asin,'reviewerID'])) * 3 + 3))
+    df_wide = matrix(data = NA, 
+                     nrow = length(unique(df$asin)), 
+                     ncol=(length(unique(df[df['asin']==asin,'reviewerID'])) * 3 + 3))
     unmade=FALSE
   }
   user_count = 4
@@ -75,6 +80,42 @@ sum(is.na(target))
 sum(is.na(features))
 ?ranger
 feat_targ = df_wide[c(2,4:ncol(df_wide))]
+
+# Graphing the cumulative function of mean as it gets more accurate
+library(reshape2)
+cum_mean = function(v){
+  # accepts vector of numeric inputs
+  # returns a vector of the cum mean
+  mean_list = c(rep(NA, length(v)))
+  for(i in 1:length(v)){
+    mean_list[i] = mean(v[1:i])
+  }
+  return(mean_list)
+}
+extract_cum_mean = function(df_wide){
+  col_seq = seq(4, ncol(df_wide), 3)
+  # print(col_seq)
+  asin_vec = c()
+  first_loop = TRUE
+  df_matrix = matrix(data = NA, nrow = length(df_wide$asin), ncol = length(col_seq))
+  for(asin in df_wide$asin){
+    asin_vec = c(asin_vec, asin)
+    vec = unlist(df_wide[df_wide['asin']==asin, col_seq])
+    df_matrix[length(asin_vec),] = cum_mean(vec) - rep(as.numeric(as.character(df_wide[df_wide['asin']==asin, 'true_rating'])), length(vec))
+  }
+  df_cm = data.frame(df_matrix)
+  df_cm = cbind(asin_vec, df_cm)
+  colnames(df_cm) = c("asin", colnames(df_wide[col_seq]))
+  return(df_cm)
+}
+test_cm_df = extract_cum_mean(df_wide)
+
+
+melt_cm_df = melt(test_cm_df, id='asin')
+ggplot(melt_cm_df, aes(x=variable, y=value, colour=asin, group=asin)) + geom_line()
+
+
+
 # n-fold cross-validation
 nfold_cv = function(df, n_folds, to_predict='target') {
   # Total number of rows in the df

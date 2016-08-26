@@ -1,0 +1,57 @@
+Select just the rows where asin is one of target_df['asin'].tolist()
+Add a new column using "row_number() over (partition by asin order by unixReviewTime) as rownum"
+Select rows where rownum <= 20
+
+query = "SELECT * FROM review_full WHERE asin IN '" + target_df['asin'].tolist() + "' ORDER BY unixReviewTime ASC LIMIT 20"
+
+
+query = "SELECT r.*, ROW_NUMBER() OVER (PARTITION BY asin ORDER BY unixReviewTime) as rownum FROM review_full r WHERE rownum <= 40"
+
+query = "SELECT * FROM review_full WHERE AnId IN (SELECT AnId FROM review_full AS d WHERE d.asin = review_full.asin ORDER BY unixReviewTime ASC LIMIT -1 OFFSET 40)"
+
+query = "SELECT * FROM review_full WHERE asin IN (SELECT asin FROM review_full AS d WHERE d.asin = review_full.asin ORDER BY unixReviewTime ASC LIMIT -1 OFFSET 40)"
+
+query = """select *, (select count(*) from tbl as y where x.asin = y.asin & x.unixReviewTime <= y.unixReviewTime) as rownum from tbl as x WHERE rownum <= 40"""
+
+CREATE TABLE sql_subset AS
+SELECT
+r.asin,
+r.reviewerID,
+r.overall,
+r.unixReviewTime,
+r.vader,
+c.avg_rating
+FROM review_full AS r INNER JOIN 
+  (
+    SELECT m.asin, AVG(m.overall) AS m.avg_rating FROM review_full as m
+    GROUP BY m.asin
+    HAVING COUNT(m.asin) >=500
+  ) AS c ON r.asin = c.asin 
+WHERE r.reviewerID IN
+(
+ SELECT c2.reviewerID 
+ FROM review_full c2
+ WHERE c.asin = c2.asin
+ GROUP BY reviewerID
+ ORDER BY unixReviewTime
+ LIMIT 40
+ )
+ORDER BY asin, unixReviewTime;
+
+
+
+
+
+
+
+SELECT 
+asin,
+reviewerID,
+overall,
+unixReviewTime,
+vader
+FROM review_full 
+WHERE asin = '0000031887' 
+GROUP BY reviewerID 
+ORDER BY unixReviewTime ASC LIMIT 40;
+
