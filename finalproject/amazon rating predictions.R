@@ -15,7 +15,7 @@ length(unique(df$asin))
 # so twenty reviews should become 60 columns
 
 # target variable is avg_rating, which I'll rename true_rating
-asin = df[900,'asin']
+asin = df[90,'asin']
 length(unique(df[df['asin']==asin,'reviewerID']))
 
 unmade=TRUE
@@ -43,9 +43,13 @@ for(asin in unique(df$asin)){
     user_count = user_count + 3
   }
   asin_count = asin_count + 1
+  if(asin_count %% 100 == 0){
+    print(paste0("Reviews processed: ", asin_count))
+  }
 }
 
 df_wide = data.frame(df_wide)
+print(paste0("Dimensions of wide dataframe:", dim(df_wide)))
 colnames(df_wide)[1] = "asin"
 colnames(df_wide)[2] = "true_rating"
 colnames(df_wide)[3] = "rough_rating"
@@ -62,23 +66,30 @@ print(colnames(df_wide))
 
 write.csv(df_wide, paste0(path, "wide_summary.csv"), row.names = FALSE)
 
+
+
 # Part 2: make a model!
+
+# add elastic net regression
+
 library('caret')
 library('ranger')
-?data.frame
 model_comparisons = data.frame("model-metric"=NA, "performace_measure"=NA)
 path = "/Users/nathan/Documents/Stats/SignalDataScience/finalproject/datafiles/"
 df_wide = read.csv(paste0(path, "wide_summary.csv"), header = TRUE, stringsAsFactors = FALSE)
-df_wide = na.omit(df_wide)
+sum(is.na(df_wide))
+colnames(df_wide)
 target = df_wide[['true_rating']]
-target_factor = as.factor(as.numeric(target>=4))
+target_factor = as.factor(as.numeric(as.numeric(as.character(target))>=4))
+summary(target)
+summary(df_wide$rough_rating)
 levels(target_factor) = c("under4", "over4")
 rough_rating_factor = as.factor(as.numeric(df_wide$rough_rating>=4))
 levels(rough_rating_factor) = c("under4", "over4")
 features = df_wide[4:ncol(df_wide)]
 sum(is.na(target))
 sum(is.na(features))
-?ranger
+
 feat_targ = df_wide[c(2,4:ncol(df_wide))]
 
 # Graphing the cumulative function of mean as it gets more accurate
@@ -108,12 +119,25 @@ extract_cum_mean = function(df_wide){
   colnames(df_cm) = c("asin", colnames(df_wide[col_seq]))
   return(df_cm)
 }
-test_cm_df = extract_cum_mean(df_wide)
 
+products = 20
+test_cm_df = df_wide[1:(products*3),]
+test_cm_df = extract_cum_mean(test_cm_df)
+colnames(test_cm_df)[2:ncol(test_cm_df)]= as.character(1:(ncol(test_cm_df)-1))
+# Look for hot products (rising stars) by looking for a cluster of reviews chronologically close and also high in rating
+# Get a baseline of twenty reviews at random, and predict the true rating from there
+# that will confirm that the prediction algorithm works
+
+# look at products who cross zero... go from lower to higher or visa versa
+# eg. min is <0 and max is >0
+# sort into overrated, underrated, switch
 
 melt_cm_df = melt(test_cm_df, id='asin')
-ggplot(melt_cm_df, aes(x=variable, y=value, colour=asin, group=asin)) + geom_line()
-
+ggplot(melt_cm_df, aes(x=variable, y=value, colour=asin, group=asin)) + 
+  geom_line() + 
+  labs(x="Number of Reviews", y="Cumulative Mean") + 
+  ylim(-5,5) +
+  geom_hline(aes(yintercept=0))
 
 
 # n-fold cross-validation

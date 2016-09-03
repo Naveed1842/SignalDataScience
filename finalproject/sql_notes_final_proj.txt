@@ -55,3 +55,9 @@ WHERE asin = '0000031887'
 GROUP BY reviewerID 
 ORDER BY unixReviewTime ASC LIMIT 40;
 
+
+
+# New approach: make a subset that includes the first40 reviews for ALL products,
+# then select just the target products from that list.
+
+
