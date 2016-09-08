@@ -70,28 +70,68 @@ write.csv(df_wide, paste0(path, "wide_summary.csv"), row.names = FALSE)
 
 # Part 2: make a model!
 
-# add elastic net regression
-
+##### Select Features and Target #######
 library('caret')
 library('ranger')
+library('pROC')
+library('ROCR')
+
+split_data = function(df, test_fraction){
+  df$grouping = sample(test_fraction, dim(df)[1], replace = TRUE)
+  train = subset(df, df$grouping %% test_fraction != 0)
+  test = subset(df, df$grouping %% test_fraction == 0)
+  return(list(train = train, test = test))
+}
+
+
 model_comparisons = data.frame("model-metric"=NA, "performace_measure"=NA)
 path = "/Users/nathan/Documents/Stats/SignalDataScience/finalproject/datafiles/"
 df_wide = read.csv(paste0(path, "wide_summary.csv"), header = TRUE, stringsAsFactors = FALSE)
 sum(is.na(df_wide))
-colnames(df_wide)
+split_df = split_data(df_wide, 5)
 target = df_wide[['true_rating']]
-target_factor = as.factor(as.numeric(as.numeric(as.character(target))>=4))
+target_factor_train = as.factor(as.numeric(as.numeric(as.character(split_df$train$true_rating))>=4))
+target_factor_test = as.factor(as.numeric(as.numeric(as.character(split_df$test$true_rating))>=4))
 summary(target)
 summary(df_wide$rough_rating)
-levels(target_factor) = c("under4", "over4")
-rough_rating_factor = as.factor(as.numeric(df_wide$rough_rating>=4))
-levels(rough_rating_factor) = c("under4", "over4")
-features = df_wide[4:ncol(df_wide)]
+levels(target_factor_train) = c("under4", "over4")
+levels(target_factor_test) = c("under4", "over4")
+#rough_rating_factor = as.factor(as.numeric(df_wide$rough_rating>=4))
+#levels(rough_rating_factor) = c("under4", "over4")
+features_train = split_df$train[4:ncol(split_df$train)]
+features_test = split_df$test[4:ncol(split_df$test)]
+
+predictions = df_wide['rough_rating']
+# Should both be zero
 sum(is.na(target))
 sum(is.na(features))
 
 feat_targ = df_wide[c(2,4:ncol(df_wide))]
+# Graphing the ROC curve for predicting target_factor by rough_rating
 
+# with pROC package - plot.roc(predicted, data) two vectors: the continuous guess, and the true values
+plot.roc(target_factor, df_wide$rough_rating)
+
+# with ROCR package - 
+plotROC <- function(truth, predictions, ...){
+  # make predictions a matrix if vector
+  if(is.null(ncol(predictions))){
+    predictions = matrix(predictions)
+  }
+  pred <- prediction(predictions, matrix(truth, nrow = length(truth), ncol = ncol(predictions)))    
+  perf <- performance(pred, measure = "tpr", x.measure = "fpr")
+  
+  plot(perf, ...)
+}
+roc = function(new_prediction){
+  predictions = cbind(predictions, new_prediction)
+  plotROC(truth = as.numeric(target_factor), predictions = predictions)
+}
+plotROC(truth = as.numeric(target_factor), predictions = predictions, add = TRUE)
+
+?plot.roc
+?performance
+######  Cumulative Mean Graph  ############
 # Graphing the cumulative function of mean as it gets more accurate
 library(reshape2)
 cum_mean = function(v){
@@ -124,6 +164,7 @@ products = 20
 test_cm_df = df_wide[1:(products*3),]
 test_cm_df = extract_cum_mean(test_cm_df)
 colnames(test_cm_df)[2:ncol(test_cm_df)]= as.character(1:(ncol(test_cm_df)-1))
+
 # Look for hot products (rising stars) by looking for a cluster of reviews chronologically close and also high in rating
 # Get a baseline of twenty reviews at random, and predict the true rating from there
 # that will confirm that the prediction algorithm works
@@ -140,7 +181,7 @@ ggplot(melt_cm_df, aes(x=variable, y=value, colour=asin, group=asin)) +
   geom_hline(aes(yintercept=0))
 
 
-# n-fold cross-validation
+#### n-fold cross-validation  #####
 nfold_cv = function(df, n_folds, to_predict='target') {
   # Total number of rows in the df
   n_rows = nrow(df)
@@ -202,7 +243,7 @@ baseline_rmse = rmse(target,df_wide$rough_rating)
 model_comparisons = rbind(model_comparisons, c("baseline_RMSE", baseline_rmse))
 
 
-
+#### Caret Utility Function ##########
 caret_reg = function(x, y, method, grid, ...) {
   set.seed(1)
   control = trainControl(method="repeatedcv", repeats=2,
@@ -211,6 +252,8 @@ caret_reg = function(x, y, method, grid, ...) {
         trControl=control, metric="RMSE",
         preProcess=c("center", "scale"), ...)
 }
+
+########  List of Regression Models ########
 
 # Ranger
 forest_grid = data.frame(mtry = c(6:10))
@@ -309,6 +352,8 @@ model_comparisons = rbind(model_comparisons, c("baseline_Accuracy", baseline_acc
 
 fact_data = cbind(target_factor, features)
 
+############  Caret Classification functions ############
+
 caret_reg_ROC = function(x, y, method, grid, ...) {
   set.seed(1)
   control = trainControl(method="repeatedcv", repeats=2,
@@ -351,17 +396,25 @@ model_comparisons = rbind(model_comparisons, c("svm_Accuracy", svm_accuracy))
 
 # Ranger
 forest_grid = data.frame(mtry = c(1:3))
-forest_model = caret_reg_accuracy(x=features,
-                         y=target_factor, 
+forest_model_ROC = caret_reg_ROC(x=features_train,
+                         y=target_factor_train, 
                          method = 'ranger', 
                          grid = forest_grid, 
                          importance = 'impurity' )
 
 
-ranger_Accuracy = min(forest_model$results$Accuracy)
+ranger_ROC = min(forest_model_ROC$results$ROC)
 model_comparisons = rbind(model_comparisons, c("ranger_Accuracy", ranger_Accuracy))
 # mtry = 1
+forest_model$trainingData$.outcome
 
+
+pre3 = predict(forest_model_ROC, features_test, type = 'prob')
+summary(pre3)
+pre3[,2]
+pred2 = prediction(pre3[,2], target_factor_test)
+perf2 = performance(pred2, 'tpr', 'fpr')
+plot(perf2)
 
 # GLM
 alpha=seq(0, 0.3, 0.02) 
